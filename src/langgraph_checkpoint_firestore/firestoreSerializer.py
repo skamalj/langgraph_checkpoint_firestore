@@ -1,6 +1,6 @@
 import base64
 
-class CosmosSerializer:
+class FirestoreSerializer:
     def __init__(self, serde):
         self.serde = serde
     

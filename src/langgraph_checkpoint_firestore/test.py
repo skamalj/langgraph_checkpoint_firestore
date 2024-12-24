@@ -23,6 +23,7 @@ from langgraph.graph import StateGraph, MessagesState, START
 memory = FirestoreSaver(project_id="gcdeveloper-new")
 
 def call_model(state: MessagesState):
+    #print(state['messages'])
     response = model.invoke(state["messages"])
     return {"messages": response}
 
@@ -32,22 +33,23 @@ builder.add_node("call_model", call_model)
 builder.add_edge(START, "call_model")
 graph = builder.compile(checkpointer=memory)
 
-config = {"configurable": {"thread_id": "900"}}
-input_message = {"type": "user", "content": "hi! I'm Bob, what were my earlier names"}
+config = {"configurable": {"thread_id": "333"}}
+input_message = {"type": "user", "content": "hi! I'm Jeet"}
 for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
     chunk["messages"][-1].pretty_print()
 
-input_message = {"type": "user", "content": "what's my name now?"}
+input_message = {"type": "user", "content": "what was my previous name?"}
 for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
     chunk["messages"][-1].pretty_print()
 
-input_message = {"type": "user", "content": "I live in Pune?"}
-for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-    chunk["messages"][-1].pretty_print()
+#input_message = {"type": "user", "content": "I live in Pune"}
+#for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
+#    chunk["messages"][-1].pretty_print()
 
-input_message = {"type": "user", "content": "Tell me history of my place?"}
+input_message = {"type": "user", "content": "Where do I live?"}
 for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-    chunk["messages"][-1].pretty_print()
+    for m in chunk["messages"]:
+        m.pretty_print()
 
 
 

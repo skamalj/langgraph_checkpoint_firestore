@@ -1,7 +1,7 @@
 
 
-from langgraph_checkpoint_cosmosdb.redisSaver import CosmosDBSaver
-from .cosmosSerializer import CosmosSerializer
+from langgraph_checkpoint_firestore.firestoreSaver import FirestoreSaver
+from .firestoreSerializer import FirestoreSerializer
 
-__all__ = ["CosmosDBSaver", "CosmosSerializer"]
+__all__ = ["FirestoreSaver", "FirestoreSerializer"]
 

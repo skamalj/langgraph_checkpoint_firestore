@@ -1,7 +1,7 @@
-# create firestore Saver (langgraph checkpointer) basis cosmosdb implementation in included code include=src/langgraph_checkpoint_firestore/cosmosdbSaver.py 
+# create firestore Saver (langgraph checkpointer) basis firestoredb implementation in included code include=src/langgraph_checkpoint_firestore/firestoredbSaver.py 
 #  Remember there is no partition key in firestore only unique ID.
 # create separate collection for checkpoints and writes. Next level collection will be thread_id and then checkpoint_id
-# we have to preserve the function signatures and return values (as in cosmosdbsaver) as it is.
+# we have to preserve the function signatures and return values (as in firestoredbsaver) as it is.
 # Do provide full and complete code, i.e all function along with Saver in the included file.
 # @!
 
@@ -11,8 +11,9 @@ from typing import Any, Iterator, List, Optional, Tuple
 from langchain_core.runnables import RunnableConfig
 
 from langgraph.checkpoint.base import WRITES_IDX_MAP, BaseCheckpointSaver, ChannelVersions, Checkpoint, CheckpointMetadata, CheckpointTuple, PendingWrite, get_checkpoint_id
-from langgraph.checkpoint.serde.base import SerializerProtocol
+
 from google.cloud import firestore
+from langgraph_checkpoint_firestore.firestoreSerializer import FirestoreSerializer
 
 
 FIRESTORE_KEY_SEPARATOR = "/"
@@ -34,8 +35,8 @@ def _make_firestore_checkpoint_writes_key(thread_id: str, checkpoint_ns: str, ch
     ])
 
 
-def _parse_firestore_checkpoint_key(cosmosdb_key: str) -> dict:
-    namespace, thread_id, checkpoint_ns, checkpoint_id = cosmosdb_key.split(
+def _parse_firestore_checkpoint_key(firestoredb_key: str) -> dict:
+    namespace, thread_id, checkpoint_ns, checkpoint_id = firestoredb_key.split(
         FIRESTORE_KEY_SEPARATOR
     )
     if namespace != "checkpoint":
@@ -48,8 +49,8 @@ def _parse_firestore_checkpoint_key(cosmosdb_key: str) -> dict:
     }
 
 
-def _parse_firestore_checkpoint_writes_key(cosmosdb_key: str) -> dict:
-    namespace, thread_id, checkpoint_ns, checkpoint_id, task_id, idx = cosmosdb_key.split(
+def _parse_firestore_checkpoint_writes_key(firestoredb_key: str) -> dict:
+    namespace, thread_id, checkpoint_ns, checkpoint_id, task_id, idx = firestoredb_key.split(
         FIRESTORE_KEY_SEPARATOR
     )
     if namespace != "writes":
@@ -83,7 +84,7 @@ def _filter_keys(keys: List[str], before: Optional[RunnableConfig], limit: Optio
     return keys
 
 
-def _load_writes(serde: SerializerProtocol, task_id_to_data: dict[tuple[str, str], dict]) -> list[PendingWrite]:
+def _load_writes(serde: FirestoreSerializer, task_id_to_data: dict[tuple[str, str], dict]) -> list[PendingWrite]:
     writes = [
         (
             task_id,
@@ -95,7 +96,7 @@ def _load_writes(serde: SerializerProtocol, task_id_to_data: dict[tuple[str, str
     return writes
 
 
-def _parse_firestore_checkpoint_data(serde: SerializerProtocol, key: str, data: dict, pending_writes: Optional[List[PendingWrite]] = None) -> Optional[CheckpointTuple]:
+def _parse_firestore_checkpoint_data(serde: FirestoreSerializer, key: str, data: dict, pending_writes: Optional[List[PendingWrite]] = None) -> Optional[CheckpointTuple]:
     if not data:
         return None
 
@@ -112,6 +113,7 @@ def _parse_firestore_checkpoint_data(serde: SerializerProtocol, key: str, data: 
     }
 
     checkpoint = serde.loads_typed((data["type"], data["checkpoint"]))
+    
     metadata = serde.loads(data["metadata"])
     parent_checkpoint_id = data.get("parent_checkpoint_id", "")
     parent_config = (
@@ -134,10 +136,10 @@ def _parse_firestore_checkpoint_data(serde: SerializerProtocol, key: str, data: 
     )
 
 class FirestoreSaver(BaseCheckpointSaver):
-    def __init__(self):
+    def __init__(self, project_id):
         super().__init__()
-        self.firestore_serde = SerializerProtocol(self.serde)
-        self.client = firestore.Client()
+        self.client = firestore.Client(project=project_id)
+        self.firestore_serde = FirestoreSerializer(self.serde)
         self.checkpoints_collection = self.client.collection('checkpoints')
         self.writes_collection = self.client.collection('writes')
 
@@ -154,8 +156,6 @@ class FirestoreSaver(BaseCheckpointSaver):
     def put(self, config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: ChannelVersions) -> RunnableConfig:
         thread_id = config['configurable']['thread_id']
         checkpoint_ns = config['configurable']['checkpoint_ns']
-        if not checkpoint_ns: 
-            checkpoint_ns = "default"
         checkpoint_id = checkpoint['id']
         parent_checkpoint_id = config['configurable'].get('checkpoint_id')
         key = _make_firestore_checkpoint_key(thread_id, checkpoint_ns, checkpoint_id)
@@ -181,8 +181,6 @@ class FirestoreSaver(BaseCheckpointSaver):
     def put_writes(self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str) -> None:
         thread_id = config['configurable']['thread_id']
         checkpoint_ns = config['configurable']['checkpoint_ns']
-        if not checkpoint_ns: 
-            checkpoint_ns = "default"
         checkpoint_id = config['configurable']['checkpoint_id']
 
         for idx, (channel, value) in enumerate(writes):
@@ -193,20 +191,23 @@ class FirestoreSaver(BaseCheckpointSaver):
                 task_id,
                 WRITES_IDX_MAP.get(channel, idx),
             )
-            type_, serialized_value = self.serde.dumps_typed(value)
+            type_, serialized_value = self.firestore_serde.dumps_typed(value)
             data = {"checkpoint_key": key, 'channel': channel, 'type': type_, 'value': serialized_value}
             self.writes_collection.document(thread_id).collection(checkpoint_id).document(task_id).set(data)
 
     def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         thread_id = config['configurable']['thread_id']
         checkpoint_id = get_checkpoint_id(config)
-        checkpoint_ns = config['configurable'].get('checkpoint_ns', 'default')
+        
+        checkpoint_ns = config['configurable'].get('checkpoint_ns', '')
 
         checkpoint_key = self._get_checkpoint_key(
-            self.container, thread_id, checkpoint_ns, checkpoint_id
+            thread_id, checkpoint_ns, checkpoint_id
         )
+
         if not checkpoint_key:
             return None
+        checkpoint_id = _parse_firestore_checkpoint_key(checkpoint_key)["checkpoint_id"]
 
         doc_ref = self.checkpoints_collection.document(thread_id).collection(checkpoint_id).document('data')
         doc = doc_ref.get()
@@ -214,16 +215,17 @@ class FirestoreSaver(BaseCheckpointSaver):
             return None
 
         checkpoint_data = doc.to_dict()
+        
         pending_writes = self._load_pending_writes(
             thread_id, checkpoint_ns, checkpoint_id
         )
         return _parse_firestore_checkpoint_data(
-            self.serde, checkpoint_key, checkpoint_data, pending_writes=pending_writes
+            self.firestore_serde, checkpoint_key, checkpoint_data, pending_writes=pending_writes
         )
 
     def list(self, config: Optional[RunnableConfig], *, filter: Optional[dict[str, Any]] = None, before: Optional[RunnableConfig] = None, limit: Optional[int] = None) -> Iterator[CheckpointTuple]:
         thread_id = config['configurable']['thread_id']
-        checkpoint_ns = config['configurable'].get('checkpoint_ns', 'default')
+        checkpoint_ns = config['configurable'].get('checkpoint_ns', '')
 
         checkpoints = self.checkpoints_collection.document(thread_id).collections()
         for checkpoint in checkpoints:
@@ -233,28 +235,25 @@ class FirestoreSaver(BaseCheckpointSaver):
             if doc.exists:
                 checkpoint_data = doc.to_dict()
                 pending_writes = self._load_pending_writes(thread_id, checkpoint_ns, checkpoint_id)
-                yield self._parse_firestore_checkpoint_data(self.serde, checkpoint_data["checkpoint_key"],checkpoint_data, pending_writes)
+                yield self._parse_firestore_checkpoint_data(self.firestore_serde, checkpoint_data["checkpoint_key"],checkpoint_data, pending_writes)
 
     def _load_pending_writes(self, thread_id: str, checkpoint_ns: Optional[str] , checkpoint_id: str) -> List[PendingWrite]:
-        writes = []
+        
         writes_ref = self.writes_collection.document(thread_id).collection(checkpoint_id)  # Use collection instead of collections()
-        try:
-            for write_doc in writes_ref.stream():  # Stream through documents in the collection
-                write_data = write_doc.to_dict()
-                task_id = write_data.get('task_id', None)  # Use .get() for optional value
-
-                if task_id:
-                    # Assuming write_data has 'channel', 'type', and 'value' fields
-                    try:
-                        deserialized_value = self.firestore_serde.loads_typed((write_data['type'], write_data['value']))
-                        writes.append(PendingWrite(task_id, write_data['channel'], deserialized_value))
-                    except Exception as e:
-                        print(f"Error deserializing write data for task {task_id}: {e}")
-
-        except Exception as e:
-            print(f"Error querying Firestore: {e}")
-
-        return writes
+        matching_keys = [write_doc.to_dict() for write_doc in writes_ref.stream()]
+        parsed_keys = [
+            _parse_firestore_checkpoint_writes_key(key["checkpoint_key"]) for key in matching_keys
+        ]
+        pending_writes = _load_writes(
+            self.firestore_serde,
+            {
+                (parsed_key["task_id"], parsed_key["idx"]): key
+                for key, parsed_key in sorted(
+                    zip(matching_keys, parsed_keys), key=lambda x: x[1]["idx"]
+                )
+            },
+        )
+        return pending_writes
    
     def _get_checkpoint_key(self, thread_id: str, checkpoint_ns: str, checkpoint_id: Optional[str]) -> Optional[str]:
         if not checkpoint_ns: 
@@ -262,16 +261,15 @@ class FirestoreSaver(BaseCheckpointSaver):
         if checkpoint_id:
             return _make_firestore_checkpoint_key(thread_id, checkpoint_ns, checkpoint_id)
 
-        collection_ref = self.db.collection("checkpoints").document(thread_id).collection(checkpoint_ns)
-
-        try:
-            docs = list(collection_ref.stream())  # Get all documents in the subcollection
-        except Exception as e:
-            print(f"Error querying Firestore: {e}")
-            return None
+        collections = self.checkpoints_collection.document(thread_id).collections()    
+        docs = [
+            collection.document("data").get().to_dict()
+            for collection in collections
+            if collection.document("data").get().exists
+            ]
 
         if not docs:
             return None
 
-        latest_doc = max(docs, key=lambda doc: _parse_firestore_checkpoint_key(doc.to_dict()["checkpoint_key"])["checkpoint_id"])
-        return latest_doc.to_dict()["checkpoint_key"]
+        latest_doc = max(docs, key=lambda doc: _parse_firestore_checkpoint_key(doc["checkpoint_key"])["checkpoint_id"])
+        return latest_doc["checkpoint_key"]

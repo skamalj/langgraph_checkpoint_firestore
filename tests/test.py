@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from langgraph_checkpoint_cosmosdb import CosmosDBSaver
+from langgraph_checkpoint_firestore import FirestoreSaver
 def _set_env(var: str):
     if not os.environ.get(var):
         os.environ[var] = getpass.getpass(f"{var}: ")
@@ -20,7 +20,7 @@ from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, MessagesState, START
 
-memory = CosmosDBSaver(database_name="langgraph", container_name="checkpoint")
+memory = FirestoreSaver(project_id='gcdeveloper-new')
 
 def call_model(state: MessagesState):
     response = model.invoke(state["messages"])
@@ -32,12 +32,12 @@ builder.add_node("call_model", call_model)
 builder.add_edge(START, "call_model")
 graph = builder.compile(checkpointer=memory)
 
-config = {"configurable": {"thread_id": "900"}}
-input_message = {"type": "user", "content": "hi! I'm Jeet, what were my earlier names"}
-for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-    chunk["messages"][-1].pretty_print()
+config = {"configurable": {"thread_id": "10"}}
+#input_message = {"type": "user", "content": "hi! I'm Jeet"}
+#for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
+#    chunk["messages"][-1].pretty_print()
 
-input_message = {"type": "user", "content": "what's my name now?"}
+input_message = {"type": "user", "content": "what's my name?"}
 for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
     chunk["messages"][-1].pretty_print()
 

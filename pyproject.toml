@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "langgraph_checkpoint_cosmosdb"
-version = "0.1.8"
-description = "Azure CosmosDB checkpoint saver implementation for LangGraph"
+name = "langgraph_checkpoint_firestore"
+version = "0.1.1"
+description = "Google Firestore checkpoint saver implementation for LangGraph"
 authors = [{name = "Kamal", email = "skamalj@github.com"}]
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "langchain-core",
     "langgraph",
-    "azure-cosmos"
+    "google-cloud-firestore"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/langgraph_checkpoint_cosmosdb"]
+packages = ["src/langgraph_checkpoint_firestore"]
 
 [tool.black]
 line-length = 88

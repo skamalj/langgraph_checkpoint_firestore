@@ -28,7 +28,7 @@ from langgraph_checkpoint_firestore import FirestoreSaver
 # Initialize the saver
 Collections - write and checkpoint -  are created if it does not exists
 ```
-saver = CosmosDBSaver(project='project_id')
+saver = FirestoreSaver(project='project_id')
 ```
 
 ## Limitations

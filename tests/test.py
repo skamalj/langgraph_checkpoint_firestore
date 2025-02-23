@@ -20,36 +20,37 @@ from typing_extensions import TypedDict
 
 from langgraph.graph import StateGraph, MessagesState, START
 
-memory = FirestoreSaver(project_id='gcdeveloper-new')
+#memory = FirestoreSaver(project_id='gcdeveloper-new', checkpoints_collection='langchain', writes_collection='langchain_writes')
 
 def call_model(state: MessagesState):
     response = model.invoke(state["messages"])
     return {"messages": response}
 
+with FirestoreSaver.from_conn_info(project_id='gcdeveloper-new', checkpoints_collection='langchain', writes_collection='langchain_writes') as memory:
 
-builder = StateGraph(MessagesState)
-builder.add_node("call_model", call_model)
-builder.add_edge(START, "call_model")
-graph = builder.compile(checkpointer=memory)
-
-config = {"configurable": {"thread_id": "10"}}
-#input_message = {"type": "user", "content": "hi! I'm Jeet"}
-#for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-#    chunk["messages"][-1].pretty_print()
-
-input_message = {"type": "user", "content": "what's my name?"}
-for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-    chunk["messages"][-1].pretty_print()
-
-#input_message = {"type": "user", "content": "I live in Pune?"}
-#for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-#    chunk["messages"][-1].pretty_print()
-
-input_message = {"type": "user", "content": "Tell me history of my place?"}
-for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
-    chunk["messages"][-1].pretty_print()
-
-
-
-
+    builder = StateGraph(MessagesState)
+    builder.add_node("call_model", call_model)
+    builder.add_edge(START, "call_model")
+    graph = builder.compile(checkpointer=memory)
     
+    config = {"configurable": {"thread_id": "10"}}
+    #input_message = {"type": "user", "content": "hi! I'm Jeet"}
+    #for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
+    #    chunk["messages"][-1].pretty_print()
+    
+    input_message = {"type": "user", "content": "what's my name?"}
+    for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
+        chunk["messages"][-1].pretty_print()
+    
+    #input_message = {"type": "user", "content": "I live in Pune?"}
+    #for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
+    #    chunk["messages"][-1].pretty_print()
+    
+    input_message = {"type": "user", "content": "Tell me history of my place?"}
+    for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
+        chunk["messages"][-1].pretty_print()
+    
+    
+    
+    
+        

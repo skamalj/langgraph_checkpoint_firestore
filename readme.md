@@ -28,7 +28,10 @@ from langgraph_checkpoint_firestore import FirestoreSaver
 # Initialize the saver
 Collections - write and checkpoint -  are created if it does not exists
 ```
-saver = FirestoreSaver(project='project_id')
+#memory = FirestoreSaver(project_id=<project_id>, checkpoints_collection='langchain', writes_collection='langchain_writes')
+```
+```
+with FirestoreSaver.from_conn_info(project_id=<project_id>, checkpoints_collection='langchain', writes_collection='langchain_writes') as memory:
 ```
 
 ## Limitations

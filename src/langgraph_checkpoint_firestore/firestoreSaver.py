@@ -136,19 +136,19 @@ def _parse_firestore_checkpoint_data(serde: FirestoreSerializer, key: str, data:
     )
 
 class FirestoreSaver(BaseCheckpointSaver):
-    def __init__(self, project_id):
+    def __init__(self, project_id, checkpoints_collection='checkpoints', writes_collection='writes'):
         super().__init__()
         self.client = firestore.Client(project=project_id)
         self.firestore_serde = FirestoreSerializer(self.serde)
-        self.checkpoints_collection = self.client.collection('checkpoints')
-        self.writes_collection = self.client.collection('writes')
+        self.checkpoints_collection = self.client.collection(checkpoints_collection)
+        self.writes_collection = self.client.collection(writes_collection)
 
     @classmethod
     @contextmanager
-    def from_conn_info(cls) -> Iterator['FirestoreSaver']:
+    def from_conn_info(cls,*,project_id: str, checkpoints_collection: str, writes_collection: str) -> Iterator['FirestoreSaver']:
         saver = None
         try:
-            saver = FirestoreSaver()
+            saver = FirestoreSaver(project_id, checkpoints_collection, writes_collection)
             yield saver
         finally:
             pass

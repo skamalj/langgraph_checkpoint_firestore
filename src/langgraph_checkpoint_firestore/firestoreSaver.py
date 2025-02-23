@@ -235,7 +235,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             if doc.exists:
                 checkpoint_data = doc.to_dict()
                 pending_writes = self._load_pending_writes(thread_id, checkpoint_ns, checkpoint_id)
-                yield self._parse_firestore_checkpoint_data(self.firestore_serde, checkpoint_data["checkpoint_key"],checkpoint_data, pending_writes)
+                yield _parse_firestore_checkpoint_data(self.firestore_serde, checkpoint_data["checkpoint_key"],checkpoint_data, pending_writes)
 
     def _load_pending_writes(self, thread_id: str, checkpoint_ns: Optional[str] , checkpoint_id: str) -> List[PendingWrite]:
         

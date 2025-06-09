@@ -1,6 +1,10 @@
 # Changelog
 
-## Version 0.1.3
+## [0.1.4]
+### Changed
+- Async support
+
+## [0.1.3]
 
 - **Added**: Configurable checkpoint and writes collection feature.
 - **Fixed**: List function bug.

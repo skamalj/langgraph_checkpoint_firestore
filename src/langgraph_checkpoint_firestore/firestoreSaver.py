@@ -6,7 +6,7 @@
 # @!
 
 from contextlib import contextmanager
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, Optional, Tuple, AsyncIterator
 
 from langchain_core.runnables import RunnableConfig
 
@@ -14,7 +14,7 @@ from langgraph.checkpoint.base import WRITES_IDX_MAP, BaseCheckpointSaver, Chann
 
 from google.cloud import firestore
 from langgraph_checkpoint_firestore.firestoreSerializer import FirestoreSerializer
-
+import asyncio
 
 FIRESTORE_KEY_SEPARATOR = "/"
 
@@ -273,3 +273,28 @@ class FirestoreSaver(BaseCheckpointSaver):
 
         latest_doc = max(docs, key=lambda doc: _parse_firestore_checkpoint_key(doc["checkpoint_key"])["checkpoint_id"])
         return latest_doc["checkpoint_key"]
+    
+    async def aget(self, config: RunnableConfig) -> Optional[Checkpoint]:
+        if value := await self.aget_tuple(config):
+            return value.checkpoint
+
+    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self.get_tuple, config
+        )
+
+    async def alist(self, config: RunnableConfig) -> AsyncIterator[CheckpointTuple]:
+        loop = asyncio.get_running_loop()
+        iter = loop.run_in_executor(None, self.list, config)
+        while True:
+            try:
+                yield await loop.run_in_executor(None, next, iter)
+            except StopIteration:
+                return
+
+    async def aput(
+        self, config: RunnableConfig, checkpoint: Checkpoint
+    ) -> RunnableConfig:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self.put, config, checkpoint
+        )

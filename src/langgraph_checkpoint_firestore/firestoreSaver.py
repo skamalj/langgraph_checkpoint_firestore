@@ -293,7 +293,7 @@ class FirestoreSaver(BaseCheckpointSaver):
                 return
 
     async def aput(
-        self, config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata=None, new_versions: ChannelVersions=None
+        self, config: RunnableConfig, checkpoint: Checkpoint, metadata: Optional[CheckpointMetadata] = None, new_versions: Optional[ChannelVersions] = None
     ) -> RunnableConfig:
         return await asyncio.get_running_loop().run_in_executor(
             None, self.put, config, checkpoint, metadata, new_versions

@@ -4,6 +4,7 @@ This project provides an implementation of a checkpoint saver for LangGraph usin
 
 ## Features
 - Save and retrieve langgraph checkpoints in Google Firestore.
+- Supports sync and async versions
 
 ## Installation
 
@@ -13,7 +14,7 @@ To install the package, ensure you have Python 3.9 or higher, and run:
 
 ## Usage
 
-### Setting Up CosmosDBSaver
+### Setting Up FirestoreSaver
 
 To use the `FirestoreSaver`, you need to provide google default application authenmtication via environment 
 

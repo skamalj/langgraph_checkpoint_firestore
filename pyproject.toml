@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph_checkpoint_firestore"
-version = "0.1.4"
+version = "0.1.6"
 description = "Google Firestore checkpoint saver implementation for LangGraph"
 authors = [{name = "Kamal", email = "skamalj@github.com"}]
 readme = "README.md"

@@ -33,7 +33,7 @@ with FirestoreSaver.from_conn_info(project_id='gcdeveloper-new', checkpoints_col
     builder.add_edge(START, "call_model")
     graph = builder.compile(checkpointer=memory)
     
-    config = {"configurable": {"thread_id": "10"}}
+    config = {"configurable": {"thread_id": "333"}}
     #input_message = {"type": "user", "content": "hi! I'm Jeet"}
     #for chunk in graph.stream({"messages": [input_message]}, config, stream_mode="values"):
     #    chunk["messages"][-1].pretty_print()

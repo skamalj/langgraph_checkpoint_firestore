@@ -333,8 +333,15 @@ class FirestoreSaver(BaseCheckpointSaver):
                 return
 
     async def aput(
-        self, config: RunnableConfig, checkpoint: Checkpoint
+        self, config: RunnableConfig, checkpoint: Checkpoint, metadata: Optional[CheckpointMetadata] = None, new_versions: Optional[ChannelVersions] = None
     ) -> RunnableConfig:
         return await asyncio.get_running_loop().run_in_executor(
-            None, self.put, config, checkpoint
+            None, self.put, config, checkpoint, metadata, new_versions
+        )
+
+    async def aput_writes(
+        self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str
+    ) -> None:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, self.put_writes, config, writes, task_id
         )

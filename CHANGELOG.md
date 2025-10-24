@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7]
+### Changed
+- Subgraph support
+- Performance fix
+- Update for langraph 1.0.1
+
 ## [0.1.4]
 ### Changed
 - Async support

@@ -136,19 +136,18 @@ def _parse_firestore_checkpoint_data(serde: FirestoreSerializer, key: str, data:
     )
 
 class FirestoreSaver(BaseCheckpointSaver):
-    def __init__(self, project_id, checkpoints_collection='checkpoints', writes_collection='writes'):
+    def __init__(self, project_id, checkpoints_collection='checkpoints'):
         super().__init__()
         self.client = firestore.Client(project=project_id)
         self.firestore_serde = FirestoreSerializer(self.serde)
         self.checkpoints_collection = self.client.collection(checkpoints_collection)
-        self.writes_collection = self.client.collection(writes_collection)
 
     @classmethod
     @contextmanager
-    def from_conn_info(cls,*,project_id: str, checkpoints_collection: str, writes_collection: str) -> Iterator['FirestoreSaver']:
+    def from_conn_info(cls,*,project_id: str, checkpoints_collection: str) -> Iterator['FirestoreSaver']:
         saver = None
         try:
-            saver = FirestoreSaver(project_id, checkpoints_collection, writes_collection)
+            saver = FirestoreSaver(project_id, checkpoints_collection)
             yield saver
         finally:
             pass
@@ -193,6 +192,7 @@ class FirestoreSaver(BaseCheckpointSaver):
 
         # Writes belong under the checkpoint itself
         partition_collection = self._get_partition_collection(thread_id, checkpoint_ns)
+        # self.write_collection is not used anymore. 
         writes_collection = partition_collection.document(checkpoint_id).collection("writes")
   
         for idx, (channel, value) in enumerate(writes):
@@ -263,11 +263,8 @@ class FirestoreSaver(BaseCheckpointSaver):
 
     def _load_pending_writes(self, thread_id: str, checkpoint_ns: Optional[str] , checkpoint_id: str) -> List[PendingWrite]:
         
-        writes_ref = (
-            self.writes_collection
-            .document(f"{thread_id}_{checkpoint_ns}")
-            .collection(checkpoint_id)
-        )
+        partition_collection = self._get_partition_collection(thread_id, checkpoint_ns)
+        writes_ref = partition_collection.document(checkpoint_id).collection("writes")
 
         # Stream all write documents under this checkpoint
         write_docs = [doc.to_dict() for doc in writes_ref.stream() if doc.exists]

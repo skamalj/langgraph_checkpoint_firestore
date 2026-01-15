@@ -322,12 +322,14 @@ class FirestoreSaver(BaseCheckpointSaver):
 
     async def alist(self, config: RunnableConfig) -> AsyncIterator[CheckpointTuple]:
         loop = asyncio.get_running_loop()
-        iter = loop.run_in_executor(None, self.list, config)
-        while True:
-            try:
-                yield await loop.run_in_executor(None, next, iter)
-            except StopIteration:
-                return
+        it = self.list(config)
+        sentinel = object()
+
+        while (
+            not (item := await loop.run_in_executor(None, next, it, sentinel))
+            is sentinel
+        ):
+            yield item
 
     async def aput(
         self, config: RunnableConfig, checkpoint: Checkpoint, metadata: Optional[CheckpointMetadata] = None, new_versions: Optional[ChannelVersions] = None

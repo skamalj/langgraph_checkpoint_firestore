@@ -344,3 +344,55 @@ class FirestoreSaver(BaseCheckpointSaver):
         return await asyncio.get_running_loop().run_in_executor(
             None, self.put_writes, config, writes, task_id
         )
+
+    def delete_thread(self, thread_id: str) -> None:
+        """Delete all checkpoints and writes associated with a specific thread ID.
+
+        Args:
+            thread_id: The thread ID whose checkpoints should be deleted.
+        """
+        prefix = f"checkpoint/{thread_id}/"
+        # Calculate the end range by incrementing the last character of the prefix
+        # This ensures we cover all keys starting with the prefix without using private use characters
+        end_prefix = prefix[:-1] + chr(ord(prefix[-1]) + 1)
+
+        checkpoints = (
+            self.client.collection_group("checkpoints")
+            .where(filter=firestore.FieldFilter("checkpoint_key", ">=", prefix))
+            .where(filter=firestore.FieldFilter("checkpoint_key", "<", end_prefix))
+            .stream()
+        )
+
+        batch = self.client.batch()
+        count = 0
+        BATCH_LIMIT = 400
+
+        for checkpoint in checkpoints:
+            writes_ref = checkpoint.reference.collection("writes")
+            writes = writes_ref.stream()
+
+            for write in writes:
+                batch.delete(write.reference)
+                count += 1
+                if count >= BATCH_LIMIT:
+                    batch.commit()
+                    batch = self.client.batch()
+                    count = 0
+
+            batch.delete(checkpoint.reference)
+            count += 1
+            if count >= BATCH_LIMIT:
+                batch.commit()
+                batch = self.client.batch()
+                count = 0
+
+        if count > 0:
+            batch.commit()
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        """Delete all checkpoints and writes associated with a specific thread ID.
+
+        Args:
+            thread_id: The thread ID whose checkpoints should be deleted.
+        """
+        return await asyncio.get_running_loop().run_in_executor(None, self.delete_thread, thread_id)

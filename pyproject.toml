@@ -4,29 +4,45 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph_checkpoint_firestore"
-version = "0.1.7"
-description = "Google Firestore checkpoint saver implementation for LangGraph"
+version = "0.2.0"
+description = "LangGraph checkpoint saver for Google Firestore with built-in message history pruning via agentstate-reducer"
 authors = [{name = "Kamal", email = "skamalj@github.com"}]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "langchain-core",
     "langgraph",
     "google-cloud-firestore"
 ]
+keywords = [
+    "langgraph", "checkpoint", "firestore", "google-cloud",
+    "message-reducer", "agent-state", "memory", "langchain"
+]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 [project.optional-dependencies]
+reducer = [
+    "agentstate-reducer>=0.1.1",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
     "black",
     "isort",
     "mypy"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "langchain-openai",
+    "langgraph-checkpoint-firestore[reducer]",
 ]
 
 [tool.hatch.build.targets.wheel]

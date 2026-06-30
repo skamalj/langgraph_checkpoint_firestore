@@ -5,6 +5,7 @@
 # Do provide full and complete code, i.e all function along with Saver in the included file.
 # @!
 
+import copy
 from contextlib import contextmanager
 from typing import Any, Iterator, List, Optional, Tuple, AsyncIterator
 
@@ -136,21 +137,37 @@ def _parse_firestore_checkpoint_data(serde: FirestoreSerializer, key: str, data:
     )
 
 class FirestoreSaver(BaseCheckpointSaver):
-    def __init__(self, project_id, checkpoints_collection='checkpoints'):
+    def __init__(self, project_id, checkpoints_collection='checkpoints', reducer=None, messages_key="messages"):
         super().__init__()
         self.client = firestore.Client(project=project_id)
         self.firestore_serde = FirestoreSerializer(self.serde)
         self.checkpoints_collection = self.client.collection(checkpoints_collection)
+        self.reducer = reducer
+        self.messages_key = messages_key
 
     @classmethod
     @contextmanager
-    def from_conn_info(cls,*,project_id: str, checkpoints_collection: str) -> Iterator['FirestoreSaver']:
+    def from_conn_info(cls, *, project_id: str, checkpoints_collection: str, reducer=None, messages_key="messages", **kwargs) -> Iterator['FirestoreSaver']:
         saver = None
         try:
-            saver = FirestoreSaver(project_id, checkpoints_collection)
+            saver = FirestoreSaver(project_id, checkpoints_collection, reducer=reducer, messages_key=messages_key)
             yield saver
         finally:
             pass
+
+    def _apply_reducer(self, checkpoint: Checkpoint) -> Checkpoint:
+        if self.reducer is None:
+            return checkpoint
+        channel_values = checkpoint.get("channel_values", {})
+        messages = channel_values.get(self.messages_key)
+        if not messages:
+            return checkpoint
+        result = self.reducer.reduce(existing=messages, new=[])
+        new_channel_values = dict(channel_values)
+        new_channel_values[self.messages_key] = result.surviving
+        new_checkpoint = copy.copy(checkpoint)
+        new_checkpoint["channel_values"] = new_channel_values
+        return new_checkpoint
 
     # Helper to get subcollection for a given partition
     def _get_partition_collection(self, thread_id: str, checkpoint_ns: str):
@@ -159,6 +176,7 @@ class FirestoreSaver(BaseCheckpointSaver):
         return partition_doc.collection("checkpoints")
     
     def put(self, config: RunnableConfig, checkpoint: Checkpoint, metadata: CheckpointMetadata, new_versions: ChannelVersions) -> RunnableConfig:
+        checkpoint = self._apply_reducer(checkpoint)
         thread_id = config['configurable']['thread_id']
         checkpoint_ns = config['configurable']['checkpoint_ns']
         checkpoint_id = checkpoint['id']

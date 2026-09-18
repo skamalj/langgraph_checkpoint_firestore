@@ -11,11 +11,11 @@ resolution-markers = [
 
 [[package]]
 name = "agentstate-reducer"
-version = "0.1.1"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/13/2e/783d9c08b2b9586921d4478ad3cf8e5dc30c2300b0ccab524a23f4cbd819/agentstate_reducer-0.1.1.tar.gz", hash = "sha256:9b19729a0626b3220de1e5189dbb6e88b8f78a059347acdde17bcc3d7c9e7229", size = 10862, upload-time = "2026-06-26T12:05:01.121Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/2f/8ae3e2a6e39e8b11879fd0a8c139107bd114388d2ad8d6cf723e29b05ded/agentstate_reducer-0.3.0.tar.gz", hash = "sha256:9f760f595b206ed69c8104d8b771613c2937ee90bd4b842fe2bc32a72e90e000", size = 34742, upload-time = "2026-07-26T07:10:49.387Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/76/e5aa1b033799f8be438e1913965a0006c638c01947923fb8561f1850efe6/agentstate_reducer-0.1.1-py3-none-any.whl", hash = "sha256:fd9a05e29fcf69a1291d1efe1826b702f8e02742121d179867327b1eabc15b5e", size = 8761, upload-time = "2026-06-26T12:05:02.127Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/3a/f02127dce0708754bcdc1446cf3f4c875d129b2b8677c8eebf03b12415a0/agentstate_reducer-0.3.0-py3-none-any.whl", hash = "sha256:79d2174fe9e737f4cede6285b3a786c4fc2e7140481c9222ce7a97f220764684", size = 14703, upload-time = "2026-07-26T07:10:47.928Z" },
 ]
 
 [[package]]
@@ -516,7 +516,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -937,7 +937,7 @@ wheels = [
 
 [[package]]
 name = "langgraph-checkpoint-firestore"
-version = "0.2.0"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "google-cloud-firestore" },
@@ -967,7 +967,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentstate-reducer", marker = "extra == 'reducer'", specifier = ">=0.1.1" },
+    { name = "agentstate-reducer", marker = "extra == 'reducer'", specifier = ">=0.3.0" },
     { name = "black", marker = "extra == 'dev'" },
     { name = "google-cloud-firestore" },
     { name = "isort", marker = "extra == 'dev'" },

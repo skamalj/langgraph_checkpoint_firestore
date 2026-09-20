@@ -7,13 +7,14 @@
 
 import copy
 from contextlib import contextmanager
-from typing import Any, Iterator, List, Optional, Tuple, AsyncIterator
+from typing import Dict, Any, Iterator, List, Optional, Tuple, AsyncIterator
 
 from langchain_core.runnables import RunnableConfig
 
 from langgraph.checkpoint.base import WRITES_IDX_MAP, BaseCheckpointSaver, ChannelVersions, Checkpoint, CheckpointMetadata, CheckpointTuple, PendingWrite, get_checkpoint_id
 
 from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 from langgraph_checkpoint_firestore.firestoreSerializer import FirestoreSerializer
 import asyncio
 
@@ -232,7 +233,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             }
         }
 
-    def put_writes(self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str) -> None:
+    def put_writes(self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str, task_path: str = "") -> None:
         thread_id = config['configurable']['thread_id']
         checkpoint_ns = config['configurable']['checkpoint_ns']
         checkpoint_id = config['configurable']['checkpoint_id']
@@ -255,7 +256,8 @@ class FirestoreSaver(BaseCheckpointSaver):
                     'value': serialized_value, 
                     "task_id": task_id,
                     "idx": WRITES_IDX_MAP.get(channel, idx)}
-            writes_collection.document(f"{task_id}_{idx}").set(data)
+            data["task_path"] = task_path
+            writes_collection.document(f"{task_id}_{WRITES_IDX_MAP.get(channel, idx)}").set(data)
 
     def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         thread_id = config['configurable']['thread_id']
@@ -292,21 +294,43 @@ class FirestoreSaver(BaseCheckpointSaver):
 
         partition_collection = self._get_partition_collection(thread_id, checkpoint_ns)
 
-        # Order by checkpoint_id descending (latest first)
+        # Order by checkpoint_id descending (latest first); `before`, metadata filter and
+        # limit are applied here (limit after filtering, so it caps *matching* checkpoints).
         query = partition_collection.order_by("checkpoint_id", direction=firestore.Query.DESCENDING)
-
-        if limit:
-            query = query.limit(limit)
-        
-        checkpoints = query.stream()
-
-        for checkpoint in checkpoints:
+        before_id = get_checkpoint_id(before) if before else None
+        if before_id is not None:
+            query = query.where(filter=FieldFilter("checkpoint_id", "<", before_id))
+        yielded = 0
+        for checkpoint in query.stream():
             if not checkpoint.exists:
                 continue
             checkpoint_data = checkpoint.to_dict()
             checkpoint_id = checkpoint_data["checkpoint_id"]
             pending_writes = self._load_pending_writes(thread_id, checkpoint_ns, checkpoint_id)
-            yield _parse_firestore_checkpoint_data(self.firestore_serde, checkpoint_data["checkpoint_key"],checkpoint_data, pending_writes)
+            tup = _parse_firestore_checkpoint_data(self.firestore_serde, checkpoint_data["checkpoint_key"], checkpoint_data, pending_writes)
+            if tup is None:
+                continue
+            if filter and not all(tup.metadata.get(k) == v for k, v in filter.items()):
+                continue
+            yield tup
+            yielded += 1
+            if limit is not None and yielded >= limit:
+                return
+
+    def delete_thread(self, thread_id: str) -> None:
+        """Delete every checkpoint and pending write for a thread, across namespaces."""
+        prefix = f"{thread_id}_"
+        for partition_doc in self.checkpoints_collection.list_documents():
+            if not partition_doc.id.startswith(prefix):
+                continue
+            for cp_doc in partition_doc.collection("checkpoints").list_documents():
+                for w in cp_doc.collection("writes").list_documents():
+                    w.delete()
+                cp_doc.delete()
+            partition_doc.delete()
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        await asyncio.get_running_loop().run_in_executor(None, self.delete_thread, thread_id)
 
     def _load_pending_writes(self, thread_id: str, checkpoint_ns: Optional[str] , checkpoint_id: str) -> List[PendingWrite]:
         
@@ -367,14 +391,16 @@ class FirestoreSaver(BaseCheckpointSaver):
             None, self.get_tuple, config
         )
 
-    async def alist(self, config: RunnableConfig) -> AsyncIterator[CheckpointTuple]:
+    async def alist(self, config: Optional[RunnableConfig], *,
+                    filter: Optional[Dict[str, Any]] = None,
+                    before: Optional[RunnableConfig] = None,
+                    limit: Optional[int] = None) -> AsyncIterator[CheckpointTuple]:
         loop = asyncio.get_running_loop()
-        iter = loop.run_in_executor(None, self.list, config)
-        while True:
-            try:
-                yield await loop.run_in_executor(None, next, iter)
-            except StopIteration:
-                return
+        items = await loop.run_in_executor(
+            None, lambda: list(self.list(config, filter=filter, before=before, limit=limit))
+        )
+        for item in items:
+            yield item
 
     async def aput(
         self, config: RunnableConfig, checkpoint: Checkpoint, metadata: Optional[CheckpointMetadata] = None, new_versions: Optional[ChannelVersions] = None
@@ -384,8 +410,8 @@ class FirestoreSaver(BaseCheckpointSaver):
         )
 
     async def aput_writes(
-        self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str
+        self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str, task_path: str = ""
     ) -> None:
         return await asyncio.get_running_loop().run_in_executor(
-            None, self.put_writes, config, writes, task_id
+            None, self.put_writes, config, writes, task_id, task_path
         )

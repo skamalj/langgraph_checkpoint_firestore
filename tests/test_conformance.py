@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 from langgraph.checkpoint.conformance import checkpointer_test
+from langgraph.checkpoint.conformance.capabilities import EXTENDED_CAPABILITIES
 from langgraph.checkpoint.conformance.report import ProgressCallbacks
 from langgraph.checkpoint.conformance.validate import validate
 
@@ -22,8 +23,15 @@ async def _saver():
 
 
 @pytest.mark.asyncio
-async def test_official_conformance_base_capabilities():
+async def test_official_conformance_all_capabilities():
     report = await validate(_saver, progress=ProgressCallbacks.quiet())
+    report.print_report()
     failures = {cap: r.failures for cap, r in report.results.items() if r.failures}
     assert report.passed_all_base(), failures
+    # Every extended capability must be detected (implemented) and pass.
+    for cap in EXTENDED_CAPABILITIES:
+        result = report.results.get(cap.value)
+        assert result is not None and result.detected, f"{cap.value} not implemented"
+        assert result.passed is True, {cap.value: result.failures}
+    assert report.passed_all(), failures
     assert report.conformance_level() == "FULL"

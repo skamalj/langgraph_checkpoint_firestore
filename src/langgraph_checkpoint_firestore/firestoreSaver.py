@@ -228,6 +228,11 @@ class FirestoreSaver(BaseCheckpointSaver):
             'metadata': serialized_metadata,
             'parent_checkpoint_id': parent_checkpoint_id if parent_checkpoint_id else ''
         }
+        # Top-level copy of metadata.run_id so delete_for_runs can query by it
+        # (single-field automatic index; no composite index needed).
+        run_id = metadata.get("run_id") if metadata else None
+        if run_id is not None:
+            data["run_id"] = run_id
         partition_collection = self._get_partition_collection(thread_id, checkpoint_ns)
         partition_collection.document(checkpoint_id).set(data)
         return {
@@ -336,6 +341,168 @@ class FirestoreSaver(BaseCheckpointSaver):
 
     async def adelete_thread(self, thread_id: str) -> None:
         await asyncio.get_running_loop().run_in_executor(None, self.delete_thread, thread_id)
+
+    # ------------------------------------------------------------------
+    # Optional capabilities: copy_thread / delete_for_runs / prune
+    # ------------------------------------------------------------------
+
+    _BATCH_LIMIT = 400  # Firestore caps a WriteBatch at 500 operations
+
+    class _Batcher:
+        """Accumulate batch operations and commit every ``limit`` ops."""
+
+        def __init__(self, client, limit):
+            self.client = client
+            self.limit = limit
+            self.batch = client.batch()
+            self.count = 0
+
+        def _tick(self):
+            self.count += 1
+            if self.count >= self.limit:
+                self.flush()
+
+        def set(self, ref, data):
+            self.batch.set(ref, data)
+            self._tick()
+
+        def delete(self, ref):
+            self.batch.delete(ref)
+            self._tick()
+
+        def flush(self):
+            if self.count:
+                self.batch.commit()
+            self.batch = self.client.batch()
+            self.count = 0
+
+    def _thread_partitions(self, thread_id: str):
+        """Yield ``(checkpoint_ns, partition_doc_ref)`` for every namespace of a thread.
+
+        Partition docs are usually virtual (no fields), so ``list_documents`` is
+        used rather than ``stream``.
+        """
+        prefix = f"{thread_id}_"
+        for partition_doc in self.checkpoints_collection.list_documents():
+            if partition_doc.id.startswith(prefix):
+                yield partition_doc.id[len(prefix):], partition_doc
+
+    def _delete_checkpoint_doc(self, batcher: "_Batcher", cp_ref) -> None:
+        for w in cp_ref.collection("writes").list_documents():
+            batcher.delete(w)
+        batcher.delete(cp_ref)
+
+    def copy_thread(self, source_thread_id: str, target_thread_id: str) -> None:
+        """Copy every checkpoint and pending write of ``source_thread_id`` (all
+        namespaces) to ``target_thread_id``.
+
+        Checkpoint ids, parent ids, metadata and write ordering are preserved;
+        only the thread segment of ``checkpoint_key`` is rewritten. The source
+        thread is left untouched. A nonexistent source is a no-op. Writes go
+        through batched commits.
+        """
+        if source_thread_id == target_thread_id:
+            return
+        batcher = self._Batcher(self.client, self._BATCH_LIMIT)
+        for ns, src_partition in self._thread_partitions(source_thread_id):
+            dst_collection = self._get_partition_collection(target_thread_id, ns)
+            for cp_doc in src_partition.collection("checkpoints").stream():
+                if not cp_doc.exists:
+                    continue
+                data = cp_doc.to_dict()
+                parsed = _parse_firestore_checkpoint_key(data["checkpoint_key"])
+                data["checkpoint_key"] = _make_firestore_checkpoint_key(
+                    target_thread_id, parsed["checkpoint_ns"], parsed["checkpoint_id"]
+                )
+                dst_cp_ref = dst_collection.document(cp_doc.id)
+                batcher.set(dst_cp_ref, data)
+                for w_doc in cp_doc.reference.collection("writes").stream():
+                    if not w_doc.exists:
+                        continue
+                    w_data = w_doc.to_dict()
+                    wp = _parse_firestore_checkpoint_writes_key(w_data["checkpoint_key"])
+                    w_data["checkpoint_key"] = _make_firestore_checkpoint_writes_key(
+                        target_thread_id, wp["checkpoint_ns"], wp["checkpoint_id"],
+                        wp["task_id"], wp["idx"],
+                    )
+                    batcher.set(dst_cp_ref.collection("writes").document(w_doc.id), w_data)
+        batcher.flush()
+
+    async def acopy_thread(self, source_thread_id: str, target_thread_id: str) -> None:
+        await asyncio.get_running_loop().run_in_executor(
+            None, self.copy_thread, source_thread_id, target_thread_id
+        )
+
+    def delete_for_runs(self, run_ids) -> None:
+        """Delete every checkpoint (and its writes) whose ``metadata.run_id`` is
+        in ``run_ids``, across all threads and namespaces.
+
+        Implementation notes:
+
+        * Matching relies on the top-level ``run_id`` field that ``put`` stores
+          alongside the checkpoint. Documents written by older versions of this
+          package lack that field and will not be found.
+        * No collection-group query is used (it would require a manually
+          created index). Instead every partition document is enumerated with
+          ``list_documents`` and queried with ``where("run_id", "in", chunk)``
+          (chunks of 30, the Firestore ``in`` limit), which uses the automatic
+          single-field index. Cost is therefore O(number of threads).
+        * Empty / unknown run ids are a no-op.
+        """
+        run_ids = [r for r in dict.fromkeys(run_ids) if r is not None]
+        if not run_ids:
+            return
+        chunks = [run_ids[i:i + 30] for i in range(0, len(run_ids), 30)]
+        batcher = self._Batcher(self.client, self._BATCH_LIMIT)
+        for partition_doc in self.checkpoints_collection.list_documents():
+            cp_collection = partition_doc.collection("checkpoints")
+            for chunk in chunks:
+                query = cp_collection.where(filter=FieldFilter("run_id", "in", chunk))
+                for cp_doc in query.stream():
+                    if cp_doc.exists:
+                        self._delete_checkpoint_doc(batcher, cp_doc.reference)
+        batcher.flush()
+
+    async def adelete_for_runs(self, run_ids) -> None:
+        await asyncio.get_running_loop().run_in_executor(
+            None, self.delete_for_runs, list(run_ids)
+        )
+
+    def prune(self, thread_ids, *, strategy: str = "keep_latest") -> None:
+        """Prune checkpoints for ``thread_ids``.
+
+        ``strategy="keep_latest"`` keeps, per thread and per namespace
+        partition, only the checkpoint with the greatest ``checkpoint_id`` (ids
+        are time-ordered) together with its pending writes, deleting all
+        others. ``strategy="delete"`` is equivalent to ``delete_thread``. Any
+        other strategy raises ``ValueError``. Empty / unknown thread ids are a
+        no-op.
+
+        DeltaChannel caveat: this implementation is not delta-aware. If your
+        graph uses ``DeltaChannel``, ``keep_latest`` may drop intermediate
+        checkpoints/writes the surviving checkpoint needs for reconstruction.
+        """
+        if strategy not in ("keep_latest", "delete"):
+            raise ValueError(f"Unknown prune strategy: {strategy!r}")
+        for thread_id in thread_ids:
+            if strategy == "delete":
+                self.delete_thread(thread_id)
+                continue
+            batcher = self._Batcher(self.client, self._BATCH_LIMIT)
+            for _ns, partition_doc in self._thread_partitions(thread_id):
+                cp_refs = list(partition_doc.collection("checkpoints").list_documents())
+                if len(cp_refs) <= 1:
+                    continue
+                latest = max(cp_refs, key=lambda r: r.id)
+                for cp_ref in cp_refs:
+                    if cp_ref.id != latest.id:
+                        self._delete_checkpoint_doc(batcher, cp_ref)
+            batcher.flush()
+
+    async def aprune(self, thread_ids, *, strategy: str = "keep_latest") -> None:
+        await asyncio.get_running_loop().run_in_executor(
+            None, lambda: self.prune(list(thread_ids), strategy=strategy)
+        )
 
     def _load_pending_writes(self, thread_id: str, checkpoint_ns: Optional[str] , checkpoint_id: str) -> List[PendingWrite]:
         

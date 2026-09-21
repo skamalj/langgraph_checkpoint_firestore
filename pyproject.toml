@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph_checkpoint_firestore"
-version = "0.3.2"
+version = "0.4.0"
 description = "LangGraph checkpoint saver for Google Firestore with built-in message history pruning via agentstate-reducer"
 authors = [{name = "Kamal", email = "skamalj@github.com"}]
 readme = "readme.md"

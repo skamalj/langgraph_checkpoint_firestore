@@ -1,30 +1,39 @@
 # langgraph-checkpoint-firestore
 
-Google Firestore checkpoint saver for [LangGraph](https://github.com/langchain-ai/langgraph). Persists agent state between runs so your graphs can resume from any prior checkpoint.
+A LangGraph checkpointer for **Google Firestore** with two things a plain checkpointer does not have: **bounded message history** and a **long-term memory hook**, both inside the save path, with no change to your graph.
 
-**What makes this checkpointer different:** it has message history pruning built in. Pass a `MessageReducer` and the checkpointer automatically caps your message list before writing to Firestore — no extra code in your graph, no state annotation changes required. This is the only LangGraph Firestore checkpointer with this capability.
+<p align="center"><img src="https://raw.githubusercontent.com/skamalj/langgraph_checkpoint_firestore/main/docs/agentstate-flow.svg" width="100%" alt="Messages accumulate in the checkpoint until the window's upper bound, the reducer prunes back to the lower bound, and the pruned turns flow through the on_prune hook into a long-term store"></p>
 
-## Features
+- **Bounded history.** Every thread's message list is pruned before each checkpoint is written, by message count or token budget, whole messages only, tool-call pairs kept intact. The sawtooth above is the checkpoint size over time. Without a reducer it is a straight line up.
+- **Long-term memory.** The turns that leave the window are handed to the reducer's `on_prune` hook, once each, together with the `memory_namespace` your app put in the run config. Wire that hook to any store or extraction engine; [`langgraph-memory`](https://pypi.org/project/langgraph-memory/) is the ready-made one.
+- **One line of config.**
 
-- **Full checkpoint persistence** — save, retrieve, and list LangGraph checkpoints in Google Firestore
-- **Built-in message pruning** — optional `MessageReducer` prunes message history at the persistence layer, keeping checkpoints lean without changing your graph code
-- **Sync and async API** — `put`/`get_tuple`/`list` and their `aput`/`aget_tuple`/`alist` async counterparts
-- **Subgraph support** — correctly checkpoints parent and subgraph state independently
-- **Native Firestore hierarchy** — checkpoints stored in subcollections per thread, enabling efficient per-thread queries
+```python
+from agentstate_reducer import MessageReducer, ReducerConfig, Background
+from langgraph_checkpoint_firestore import FirestoreSaver
 
-## Installation
+reducer = MessageReducer(config=ReducerConfig(max_messages=20))            # add on_prune=[Background(engine.on_prune)] for memory
+saver = FirestoreSaver("my-gcp-project", "checkpoints", reducer=reducer)
+graph = builder.compile(checkpointer=saver)
 
-```bash
-pip install langgraph-checkpoint-firestore
+graph.invoke(input, config={"configurable": {"thread_id": thread_id, "memory_namespace": ("memories", user_id)}})
 ```
 
-With optional message pruning support:
+Details: [Built-in Message Pruning](#built-in-message-pruning) below, and the full story with every framework and store at [https://skamalj.github.io/agentstate-reducer/](https://skamalj.github.io/agentstate-reducer/langgraph/firestore/).
+
+## Installation
 
 ```bash
 pip install "langgraph-checkpoint-firestore[reducer]"
 ```
 
-**Requires Python 3.10+**
+```bash
+pip install langgraph-checkpoint-firestore     # checkpointer only; history is unbounded
+```
+
+Without `reducer=`, the saver logs one INFO line per process saying so, with the link above. Set `AGENTSTATE_QUIET=1` to silence it.
+
+**Requires Python 3.10+.** Application Default Credentials, per-thread subcollections, sync and async, subgraphs. Conformance-tested with `langgraph-checkpoint-conformance` (full base suite).
 
 ## Firestore Setup
 

@@ -16,6 +16,9 @@ from langgraph.checkpoint.base import WRITES_IDX_MAP, BaseCheckpointSaver, Chann
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 from langgraph_checkpoint_firestore.firestoreSerializer import FirestoreSerializer
+from langgraph_checkpoint_firestore._nudge import nudge_unbounded_history
+import logging
+logger = logging.getLogger("langgraph_checkpoint_firestore")
 import asyncio
 
 FIRESTORE_KEY_SEPARATOR = "/"
@@ -145,6 +148,8 @@ class FirestoreSaver(BaseCheckpointSaver):
         self.checkpoints_collection = self.client.collection(checkpoints_collection)
         self.reducer = reducer
         self.messages_key = messages_key
+        if reducer is None:
+            nudge_unbounded_history(logger)
 
     @classmethod
     @contextmanager
